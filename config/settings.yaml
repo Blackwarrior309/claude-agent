@@ -1,8 +1,8 @@
 system:
   name: "Autonomous MicroBusiness Agent"
-  version: "1.0.0"
+  version: "1.1.0"
   log_level: "INFO"
-  loop_interval_seconds: 3600  # 1 hour between autonomous cycles
+  loop_interval_seconds: 3600
 
 budget:
   total_budget_eur: 60.0
@@ -12,40 +12,51 @@ budget:
   hard_stop_eur: 19.0
   currency: "EUR"
 
+# Local Ollama models (optimized for 4 GB VRAM)
+# Only models that safely fit: phi3.5:mini (~2.2 GB), llama3.2:3b (~2.0 GB)
+# 7B/8B models (>4 GB) are NOT used — they fall back to Claude Haiku
+local_models:
+  enabled: true                      # set false to disable Ollama entirely
+  ollama_url: "http://localhost:11434"
+  auto_pull: false                   # set true to auto-download models on first run
+  vram_budget_gb: 3.5                # conservative limit for 4 GB card
+  models:
+    nano:
+      name: "phi3.5:mini"
+      vram_gb: 2.2
+      tasks: [classification, filtering, routing, parsing, simple_qa]
+    small:
+      name: "llama3.2:3b"
+      vram_gb: 2.0
+      tasks: [summarization, simple_answers, extraction]
+    embed:
+      name: "nomic-embed-text"
+      vram_gb: 0.3
+      tasks: [embeddings]
+
+# API models (used when local not available or task too complex)
 models:
   premium:
     id: "claude-opus-4-7"
     cost_per_1k_input: 0.015
     cost_per_1k_output: 0.075
-    use_for:
-      - complex_reasoning
-      - planning
-      - coding
-      - strategic_decisions
+    use_for: [complex_reasoning, planning, coding, strategic_decisions]
   standard:
     id: "claude-sonnet-4-6"
     cost_per_1k_input: 0.003
     cost_per_1k_output: 0.015
-    use_for:
-      - analysis
-      - writing
-      - moderate_complexity
+    use_for: [analysis, writing, moderate_complexity, market_research]
   cheap:
     id: "claude-haiku-4-5-20251001"
     cost_per_1k_input: 0.00025
     cost_per_1k_output: 0.00125
-    use_for:
-      - classification
-      - parsing
-      - summaries
-      - simple_answers
-      - routing
+    use_for: [classification, parsing, summaries, simple_answers, routing]
 
 memory:
   short_term_capacity: 50
   long_term_db: "data/memory/longterm.db"
   embeddings_dir: "data/embeddings"
-  compression_threshold: 100  # compress after N entries
+  compression_threshold: 100
   max_context_tokens: 4000
 
 business:

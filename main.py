@@ -9,7 +9,8 @@ Usage:
   python main.py --status               # Show system status
   python main.py --opportunities        # Show market opportunities
   python main.py --build <product>      # Build a specific product
-  python main.py --demo                 # Demo mode (no real API calls)
+  python main.py --local-status         # Show Ollama/local model status
+  python main.py --pull-models          # Download recommended Ollama models
 """
 import argparse
 import json
@@ -63,11 +64,33 @@ def load_settings() -> dict:
         return yaml.safe_load(f)
 
 
+def build_local_router(settings: dict):
+    """Initialize Ollama local model router if enabled and available."""
+    local_cfg = settings.get("local_models", {})
+    if not local_cfg.get("enabled", True):
+        return None, lambda: False
+
+    from core.local_model import OllamaClient, LocalModelRouter
+    client = OllamaClient(base_url=local_cfg.get("ollama_url", "http://localhost:11434"))
+    local_router = LocalModelRouter(client)
+
+    if client.is_running():
+        pulled = client.list_models()
+        console.print(f"[green]Ollama running[/green] — {len(pulled)} model(s) loaded")
+    else:
+        console.print("[yellow]Ollama not running[/yellow] — local models disabled, using Claude API only")
+
+    return local_router, client.is_running
+
+
 def build_system(settings: dict):
     """Initialize all components and return the autonomous loop."""
+    # Local model router (Ollama, optional)
+    local_router, local_available_fn = build_local_router(settings)
+
     # Core infrastructure
     budget = BudgetManager(settings["budget"])
-    router = ModelRouter(budget.spending_level)
+    router = ModelRouter(budget.spending_level, local_available_fn)
     short_mem = ShortTermMemory(capacity=settings["memory"]["short_term_capacity"])
     long_mem = LongTermMemory(settings["memory"]["long_term_db"])
     semantic_mem = SemanticMemory(settings["memory"]["embeddings_dir"])
@@ -85,10 +108,11 @@ def build_system(settings: dict):
             schema=td["schema"],
         ))
 
-    # Build agents
+    # Build agents (all receive local_router for free local inference)
     agent_kwargs = dict(
         budget=budget, router=router, short_mem=short_mem,
         long_mem=long_mem, tools=tools, settings=settings,
+        local_router=local_router,
     )
 
     planner = PlannerAgent(**agent_kwargs)
@@ -111,7 +135,7 @@ def build_system(settings: dict):
         settings=settings,
     )
 
-    return loop, budget, long_mem, analyst
+    return loop, budget, long_mem, analyst, local_router
 
 
 def print_status(budget: BudgetManager, long_mem: LongTermMemory):
@@ -171,6 +195,35 @@ def print_opportunities(analyst):
         console.print(table)
 
 
+def print_local_status(local_router):
+    if local_router is None:
+        console.print("[yellow]Local models: disabled in config[/yellow]")
+        return
+    status = local_router.status()
+    table = Table(title="[bold cyan]Local Model Status (Ollama)[/bold cyan]")
+    table.add_column("Item", style="cyan")
+    table.add_column("Value")
+
+    table.add_row("Ollama running", "[green]YES[/green]" if status["ollama_running"] else "[red]NO[/red]")
+    gpu = status.get("gpu", {})
+    if gpu.get("gpu") and gpu["gpu"] != "unknown":
+        vram_free = gpu.get("vram_free_mb", 0)
+        vram_total = gpu.get("vram_total_mb", 0)
+        table.add_row("GPU", gpu["gpu"])
+        table.add_row("VRAM free", f"{vram_free} MB / {vram_total} MB")
+    pulled = status.get("pulled_models", [])
+    table.add_row("Pulled models", ", ".join(pulled) if pulled else "[dim]none[/dim]")
+    table.add_row("Recommended", ", ".join(status.get("recommended_pulls", [])))
+    console.print(table)
+
+    if not pulled:
+        console.print("\n[bold]To download the recommended models:[/bold]")
+        console.print("  python main.py --pull-models")
+        console.print("\nOr manually:")
+        for m in status.get("recommended_pulls", []):
+            console.print(f"  ollama pull {m}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Autonomous MicroBusiness Agent")
     parser.add_argument("--cycles", type=int, default=1, help="Number of cycles to run")
@@ -179,10 +232,12 @@ def main():
     parser.add_argument("--opportunities", action="store_true", help="Show market opportunities")
     parser.add_argument("--build", type=str, help="Build a specific product (provide description)")
     parser.add_argument("--interval", type=int, default=3600, help="Seconds between cycles")
+    parser.add_argument("--local-status", action="store_true", help="Show Ollama/local model status")
+    parser.add_argument("--pull-models", action="store_true", help="Pull recommended Ollama models")
     parser.add_argument("--demo", action="store_true", help="Demo mode without API calls")
     args = parser.parse_args()
 
-    if not os.environ.get("ANTHROPIC_API_KEY") and not args.demo and not args.status:
+    if not os.environ.get("ANTHROPIC_API_KEY") and not args.demo and not args.status and not getattr(args, "local_status", False):
         console.print("[red]Error:[/red] ANTHROPIC_API_KEY not set. Use --demo for demo mode.")
         sys.exit(1)
 
@@ -190,15 +245,32 @@ def main():
     Path("logs").mkdir(exist_ok=True)
 
     console.print(Panel(
-        "[bold cyan]Autonomous MicroBusiness Agent v1.0[/bold cyan]\n"
-        "Goal: 20€/month profit | Budget: 60€ total | Max 20€/month ops",
+        "[bold cyan]Autonomous MicroBusiness Agent v1.1[/bold cyan]\n"
+        "Goal: 20€/month profit | Budget: 60€ total | Max 20€/month ops\n"
+        "Local models: Ollama (phi3.5:mini, llama3.2:3b) for 0-cost tasks",
         expand=False,
     ))
 
-    loop, budget, long_mem, analyst = build_system(settings)
+    loop, budget, long_mem, analyst, local_router = build_system(settings)
 
     if args.status:
         print_status(budget, long_mem)
+        print_local_status(local_router)
+        return
+
+    if getattr(args, "local_status", False):
+        print_local_status(local_router)
+        return
+
+    if getattr(args, "pull_models", False):
+        if local_router is None:
+            console.print("[red]Local models disabled in config[/red]")
+            return
+        from core.local_model import LOCAL_MODELS
+        for tier, cfg in LOCAL_MODELS.items():
+            console.print(f"Pulling [cyan]{cfg.name}[/cyan] (~{cfg.vram_gb} GB VRAM)…")
+            ok = local_router.client.pull_model(cfg.name)
+            console.print("[green]OK[/green]" if ok else "[red]FAILED[/red]")
         return
 
     if args.opportunities:
