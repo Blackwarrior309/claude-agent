@@ -1,0 +1,11 @@
+anthropic>=0.25.0
+chromadb>=0.4.0
+sentence-transformers>=2.7.0
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+pyyaml>=6.0
+schedule>=1.2.0
+sqlite-utils>=3.35
+tenacity>=8.2.0
+rich>=13.7.0
+numpy>=1.24.0

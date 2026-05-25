@@ -1,0 +1,95 @@
+system:
+  name: "Autonomous MicroBusiness Agent"
+  version: "1.0.0"
+  log_level: "INFO"
+  loop_interval_seconds: 3600  # 1 hour between autonomous cycles
+
+budget:
+  total_budget_eur: 60.0
+  monthly_limit_eur: 20.0
+  min_reserve_eur: 5.0
+  soft_warning_eur: 15.0
+  hard_stop_eur: 19.0
+  currency: "EUR"
+
+models:
+  premium:
+    id: "claude-opus-4-7"
+    cost_per_1k_input: 0.015
+    cost_per_1k_output: 0.075
+    use_for:
+      - complex_reasoning
+      - planning
+      - coding
+      - strategic_decisions
+  standard:
+    id: "claude-sonnet-4-6"
+    cost_per_1k_input: 0.003
+    cost_per_1k_output: 0.015
+    use_for:
+      - analysis
+      - writing
+      - moderate_complexity
+  cheap:
+    id: "claude-haiku-4-5-20251001"
+    cost_per_1k_input: 0.00025
+    cost_per_1k_output: 0.00125
+    use_for:
+      - classification
+      - parsing
+      - summaries
+      - simple_answers
+      - routing
+
+memory:
+  short_term_capacity: 50
+  long_term_db: "data/memory/longterm.db"
+  embeddings_dir: "data/embeddings"
+  compression_threshold: 100  # compress after N entries
+  max_context_tokens: 4000
+
+business:
+  target_monthly_revenue_eur: 20.0
+  focus_markets:
+    - small_local_businesses
+    - clubs_associations
+    - pet_care
+    - hobby_businesses
+    - small_creators
+    - administration_problems
+    - excel_pdf_processes
+  priority_models:
+    - small_automations
+    - micro_saas
+    - digital_templates
+    - ocr_pdf_processes
+    - local_business_problems
+    - content_automation
+    - data_processing
+    - simple_bots
+
+agents:
+  planner:
+    enabled: true
+    max_tokens: 2000
+    temperature: 0.3
+  builder:
+    enabled: true
+    max_tokens: 4000
+    temperature: 0.2
+  sales:
+    enabled: true
+    max_tokens: 1500
+    temperature: 0.5
+  analyst:
+    enabled: true
+    max_tokens: 2000
+    temperature: 0.1
+  critic:
+    enabled: true
+    max_tokens: 1500
+    temperature: 0.2
+  memory:
+    enabled: true
+    max_tokens: 1000
+    temperature: 0.1
